@@ -2,22 +2,24 @@
 
 namespace WHMCS\Module\Widget;
 
-use AdminLang;
-use App;
 use WHMCS\Carbon;
 use WHMCS\Database\Capsule;
 use WHMCS\Module\AbstractWidget;
-use WHMCS\Order\Order;
 
-
+/**
+ * Upcoming Renewals Widget.
+ *
+ * @copyright Copyright (c) Arcane Technology Solutions, LLC 
+ * @license GPLv3 https://github.com/arcane-technology/WHMCS_UpcomingRenewals_Widget/blob/a86ee665fc3a57be854136c4161508ff00c1dc0f/LICENSE
+ */
 class UpcomingRenewals extends AbstractWidget
 {
     protected $title = 'Upcoming Renewals';
     protected $description = 'Listing of Upcoming Renewals.';
     protected $weight = 100;
-    protected $cache = false;
+    protected $cache = true;
     protected $cacheExpiry = 6 * 60;
-    protected $columns = 2;
+    // protected $columns = 2;
     protected $requiredPermission = 'View Income Totals';
 
     // WIDGET PARAMETERS
@@ -27,34 +29,55 @@ class UpcomingRenewals extends AbstractWidget
     public function getData()
     {
         $DateCutoff = Carbon::now()->addDays($this->_daysout);
-
-        $renewals = Capsule::table('tblhosting')
+        
+        $result = Capsule::table('tblhosting')
             ->join('tblproducts', 'tblhosting.packageid', '=', 'tblproducts.id')
-            ->select('tblhosting.*', 'tblproducts.name as product')
-            ->whereDate($this->_datefield, '<=',  $DateCutoff)
+            ->join('tblclients', 'tblhosting.userid', '=', 'tblclients.id')
+            ->select('tblhosting.*', 'tblclients.firstname', 'tblclients.lastname', 'tblclients.companyname', 'tblproducts.name as product')
+            ->whereDate($this->_datefield, '<=', $DateCutoff)
             ->whereDate($this->_datefield, '>=', Carbon::now())
             // ->where('server', '>', 0)
             ->where('amount', '>', 0)
             ->where("domainstatus", "active")
-            ->OrderBy('nextduedate');
-
-        return array('renewals' => $renewals->get());
+            ->OrderBy('nextduedate')
+            ->get();
+       
+        return array('renewals' => json_decode(json_encode($result), True));
     }
 
     public function generateOutput($data)
     {
-        $content = '<table bgcolor="#cccccc" align="center" style="margin-bottom:5px;width:100%;" cellspacing="1">
-<tr bgcolor="#efefef" style="text-align:center;font-weight:bold;"><td>Domain</td><td>Billing Cycle</td><td>Payment Method</td><td>Next Due Date</td><td>Amount</td></tr>';
-
-        // $result = mysql_query("SELECT * FROM `tblhosting` WHERE DATEDIFF(`nextduedate`, Now()) $range AND `server` > 0 ORDER BY `nextduedate` ASC");
+  
+        $renewals = array();
         foreach ($data['renewals'] as $r) {
-            $content .= '<tr bgcolor="#ffffff" style="text-align:center;"><td>' . $r->product . ' - <a href="clientshosting.php?userid=' . $r->userid . '&id=' . $r->id . '">' . $r->domain . '</a></td><td>' . $r->billingcycle . '</td><td>' . $r->paymentmethod . '</td><td>' . fromMySQLDate($r->nextduedate) . '</td><td>' . formatCurrency($r->amount) . '</td></tr>';
-        }
-        if (empty($data['renewals'])) {
-            $content =  '<tr bgcolor="#ffffff" style="text-align:center;"><td colspan="7">No upcoming hosting renewals</td></tr>';
-        }
-        $content .= '</table>';
 
-        return $content;
+            $renewals[] = "<div class='row ' style='padding-bottom: 10px; margin-bottom: 10px; border-bottom: 1px solid rgb(238, 238, 238)'>
+              <div class='col-md-8'  style='white-space: nowrap; overflow: hidden; text-overflow: clip;'>
+                    <a href='clientssummary.php?userid=$r->id' class='text-info'>
+                        {$r['firstname']} {$r['lastname']} " . ($r['companyname'] ? ' (' . $r['companyname'] . ')' : '') . "
+                    </a>
+                </div>
+                  <div class='col-md-4 text-right' style='white-space: nowrap;'>
+                    <span class='text-success'>" . formatCurrency($r['amount']) . "</span>
+                </div>
+                <div class='col-md-9'>
+                    <strong>{$r['product']}</strong> <span class='small'> <a href='clientshosting.php?userid={$r['userid']}&id={$r['id']} class='link'>{$r['domain']}</a></span>
+                </div>
+                  <div class='col-md-3 '>
+                    <em>" . fromMySQLDate($r['nextduedate']) . "</em>
+                </div>
+              
+                
+              
+            </div>";
+        }
+
+        if (count($renewals) == 0) {
+            $renewals[] = 'No upcoming renewals found.';
+        }
+
+        $renewalOutput = implode($renewals);
+
+        return '<div class="widget-content-padded">' . $renewalOutput . '</div>';
     }
 }
